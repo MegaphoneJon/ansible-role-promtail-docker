@@ -1,0 +1,79 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /var/log/promtail-positions.yaml
+
+clients:
+  - url: http://logs.megaphonetech.com:3100/loki/api/v1/push
+    external_labels:
+      host: {{ fqdn }}
+      client: {{ client }}
+
+scrape_configs:
+- job_name: system
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      job: varlogs
+      __path__: /var/log/*log
+  pipeline_stages:
+  - match:
+      selector: '{filename="var/log/auth.log"} |~ ".*sshd.*Received disconnect from .* Bye Bye .preauth.*"'
+      action: drop
+      drop_counter_reason: promtail_noisy_error
+  - match:
+      selector: '{filename="var/log/auth.log"} |~ ".*sshd.*Disconnected from .*preauth.*"'
+      action: drop
+      drop_counter_reason: promtail_noisy_error
+  - match:
+      selector: '{filename="var/log/auth.log"} |~ ".* promtail\\[.*"'
+      action: drop
+      drop_counter_reason: promtail_noisy_error
+- job_name: apache_access
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      job: apache_access
+      host: {{ fqdn }}
+      __path__: /var/log/apache2/*log
+      __path_exclude__: /var/log/apache2/*{error,audit}.log
+  pipeline_stages:
+  - regex:
+      expression: '(?P<clientAddr>\w{1,3}.\w{1,3}.\w{1,3}.\w{1,3}) - - .(?P<timestamp>\d{2}.*\d{4}). "(?P<request>.*)" (?P<code>\d+) .* "(?P<referrer>.*)" "(?P<userAgent>.*)"'
+  - match:
+      selector: '{userAgent=~"CiviMonitor|check_http/v2\\.2 \\(monitoring-plugins 2\\.2\\)"}'
+      action: drop
+      drop_counter_reason: my_monitoring
+  - labels:
+      clientAddr:
+      code:
+      timestamp:
+  - timestamp:
+      source: timestamp
+      format: "02/Jan/2006:15:04:05 -0700"
+- job_name: apache_errors
+  static_configs:
+  - targets:
+      - localhost
+    labels:
+      job: apache_errors
+      host: {{ fqdn }}
+      __path__: /var/log/apache2/*error.log
+  pipeline_stages:
+  - regex:
+      expression: '\[(?P<timestamp>\w{3} \w{3} \d{2} [0-9\.:]{15} \d{4})\].*\[client (?P<clientAddr>[0-9\.]+):\d+\] (?P<errorMsg>.*)'
+  - match:
+      selector: '{userAgent=~"CiviMonitor|check_http/v2\\.2 \\(monitoring-plugins 2\\.2\\)"}'
+      action: drop
+      drop_counter_reason: my_monitoring
+  - labels:
+      clientAddr:
+      timestamp:
+  - timestamp:
+      source: timestamp
+      format: "Mon Aug 14 13:12:27.852312 2023"
+    
