@@ -10,6 +10,7 @@
     image: grafana/promtail
     restart_policy: unless-stopped
     recreate: true
+    pull: true
     command: -config.file=/mnt/config/promtail-config.yaml
     volumes:
       - /var/log:/var/log
